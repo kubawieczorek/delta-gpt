@@ -2,14 +2,16 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from jw.gpt.EncoderDecoder import EncoderDecoder
+
 # hyperparameters
-batch_size = 64  # how many independent sequences will we process in parallel?
-block_size = 256  # what is the maximum context length for predictions?
+batch_size = 64 # how many independent sequences will we process in parallel?
+block_size = 256 # what is the maximum context length for predictions?
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
+eval_iters = 100
 n_embd = 384
 n_head = 6
 n_layer = 6
@@ -24,14 +26,11 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 # here are all the unique characters that occur in this text
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
-# create a mapping from characters to integers
-stoi = {ch: i for i, ch in enumerate(chars)}
-itos = {i: ch for i, ch in enumerate(chars)}
-encode = lambda s: [stoi[c] for c in s]  # encoder: take a string, output a list of integers
-decode = lambda l: ''.join([itos[i] for i in l])  # decoder: take a list of integers, output a string
+
+encode_decoder = EncoderDecoder(chars)
 
 # Train and test splits
-data = torch.tensor(encode(text), dtype=torch.long)
+data = torch.tensor(encode_decoder.encode(text), dtype=torch.long)
 n = int(0.9 * len(data))  # first 90% will be train, rest val
 train_data = data[:n]
 val_data = data[n:]
@@ -225,6 +224,7 @@ for iter in range(max_iters):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
+
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
