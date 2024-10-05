@@ -1,35 +1,42 @@
+from pathlib import Path
+
 import torch
 
 from jw.gpt.DataBatch import DataBatch
 from jw.gpt.EncoderDecoder import EncoderDecoder
 from jw.gpt.GPTLanuguageModel import GPTLanguageModel
 from jw.gpt.Learning import Learning
+from jw.gpt.cases.music.MusicConverter import mid_to_notes, create_midi
 
 # hyperparameters
-batch_size = 64  # how many independent sequences will we process in parallel?
-block_size = 256  # what is the maximum context length for predictions?
-max_iters = 1000
-eval_interval = 100
+batch_size = 32 # how many independent sequences will we process in parallel?
+block_size = 16  # what is the maximum context length for predictions?
+max_iters = 400
+eval_interval = 50
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 50
-n_embd = 384
+eval_iters = 20
+n_embd = 32
 n_head = 6
 n_trans_blocks = 6
-dropout = 0.2
+dropout = 0.3
 # ------------
 
-torch.manual_seed(1337)
+print('device: ', device)
 
-with open('input2.txt', 'r', encoding='utf-8') as f:
-    text = f.read()
+songs = []
+folder = Path('songs2')
+for file in folder.rglob('*.mid'):
+    songs.append(file)
 
-# here are all the unique characters that occur in this text
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
+notes = mid_to_notes(songs)
 
-encode_decoder = EncoderDecoder(chars)
-encoded_text = encode_decoder.encode(text)
+pitch_names = sorted(set(item for item in notes))
+vocab_size = len(pitch_names)
+print('vocab size: ', vocab_size)
+
+encode_decoder = EncoderDecoder(pitch_names)
+encoded_text = encode_decoder.encode(notes)
 
 data_batch = DataBatch(encoded_text, block_size, batch_size, device)
 
@@ -44,5 +51,5 @@ learning.start()
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(encode_decoder.decode(m.generate(context, max_new_tokens=500)[0].tolist()))
-# open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
+music = encode_decoder.decodeToList(m.generate(context, max_new_tokens=150)[0].tolist())
+create_midi(music)
