@@ -1,147 +1,202 @@
-from fractions import Fraction
+from mido import MidiFile, MidiTrack, MetaMessage, Message
 
-from music21 import converter, note, chord, instrument, meter, key, clef, tempo, stream
-
-
-def mid_to_notes(mid_songs):
-    notes = []
-    part_num = 1
-    for i, file in enumerate(mid_songs):
-        try:
-            midi = converter.parse(file)
-            parts = instrument.partitionByInstrument(midi)
-            if parts:  # file has instrument parts
-                for part in parts.parts:  # Iterate through each part
-                    notes_to_parse = part.recurse()
-                    print(f'Processing INPUT PART: {part_num}, Notes: {len(notes_to_parse.notes)}')
-                    part_num = part_num + 1
-                    parse_notes(notes_to_parse, notes)
-            else:  # file has notes in a flat structure
-                notes_to_parse = midi.flat.notes
-                parse_notes(notes_to_parse, notes)
-
-        except Exception as e:
-            print(f'FAILED: {i + 1}: {file}. Error: {e}')
-
-    return notes
+# Define a list of MetaMessage types that can be removed without affecting sound
+removable_meta_types = [
+    'track_name', 'instrument_name', 'text', 'lyrics', 'marker',
+    'cue_point', 'time_signature', 'key_signature', 'end_of_track'
+]
 
 
-def parse_notes(notes_to_parse, notes):
-    for element in notes_to_parse:
-        if isinstance(element, note.Note):  # Handling notes
-            notes.append(str(element.pitch))
-        elif isinstance(element, chord.Chord):  # Handling chords
-            notes.append('.'.join(str(n) for n in element.normalOrder))
-        elif isinstance(element, note.Rest):  # Handling rests
-            notes.append(f'rest:{element.quarterLength}')  # Append rest with duration
-        elif isinstance(element, instrument.Instrument):  # Handling instruments
-            notes.append(f"Instrument: {element.instrumentName}")  # Append instrument name
-        elif isinstance(element, meter.TimeSignature):  # Handling time signatures
-            notes.append(f"Time Signature: {element.ratioString}")  # Append time signature
-        elif isinstance(element, key.KeySignature):  # Handling key signatures
-            notes.append(f"Key Signature: {element.sharps} sharps")  # Append key signature
-        elif isinstance(element, clef.Clef):  # Handling clefs
-            notes.append(f"Clef: {element.name}")  # Append clef name
-        elif isinstance(element, tempo.MetronomeMark):  # Handling MetronomeMark (tempo)
-            notes.append(f"Tempo: {element.number} BPM")  # Append metronome (BPM)
+class MusicConverter:
 
+    def __init__(self,
+                 time_reduction,
+                 velocity_reduction,
+                 control_change_val_reduction,
+                 pitch_reduction,
+                 note_reduction):
+        self.dictionary = {}
+        self.time_reduction = time_reduction
+        self.velocity_reduction = velocity_reduction
+        self.control_change_val_reduction = control_change_val_reduction
+        self.pitch_reduction = pitch_reduction
+        self.note_reduction = note_reduction
 
-def create_midi(prediction_output, output_file='output.mid'):
-    output_notes = []
-    current_instrument = instrument.Piano()  # Default instrument
-    current_part = stream.Part()  # Create a part stream for the current instrument
-    part_num = 1
-    offset = 0
+    # Function to extract all messages into a flat list with track info
+    def extract_messages(self, midi_file_paths):
+        music_keys = []
 
-    for pattern in prediction_output:
-        new_note = None  # Initialize new_note
-        new_chord = None  # Initialize new_chord
-        new_rest = None  # Initialize new_rest
+        for music_file_path in midi_file_paths:
+            midi = MidiFile(music_file_path)
+            music_keys.append('New song')
+            # Store messages along with track index in a flat list
+            for track_index, track in enumerate(midi.tracks):
+                music_keys.append('New track')
 
-        # Check for instrument changes
-        if 'Instrument:' in pattern:
-            instrument_name = pattern.split(': ')[1]
-            current_instrument = getattr(instrument, instrument_name, instrument.Piano)()
-            if current_part.notes:  # Append the previous part if it has notes
-                output_notes.append(current_part)
-                print(f'Appending OUTPUT PART {part_num}, Notes: {len(current_part.notes)}')
-                part_num = part_num + 1
-            current_part = stream.Part()  # Start a new part for the new instrument
+                for msg in track:
+                    msgs_simple = self.simplify_message(msg)
+                    if msgs_simple is None:
+                        continue
 
-        # Check if the pattern is a rest with duration
-        elif pattern.lower().startswith('rest:'):
-            duration_str = pattern.split(':')[1]
-            try:
-                rest_duration = float(Fraction(duration_str))  # Convert to float using Fraction
-                new_rest = note.Rest()
-                new_rest.offset = offset
-                new_rest.quarterLength = rest_duration  # Set duration
-                current_part.append(new_rest)
-            except ValueError:
-                print(f"Skipping unrecognized rest duration '{duration_str}'")
+                    for msg_simple in msgs_simple:
+                        key = str(msg_simple)
+                        if key not in self.dictionary:
+                            self.dictionary[key] = msg_simple
 
-        # pattern is a chord
-        elif ('.' in pattern) or pattern.isdigit():
-            notes_in_chord = pattern.split('.')
-            notes = []
-            for current_note in notes_in_chord:
-                new_note = note.Note(int(current_note))
-                new_note.storedInstrument = current_instrument
-                new_note.offset = offset
-                notes.append(new_note)
-            new_chord = chord.Chord(notes)
-            new_chord.offset = offset
-            current_part.append(new_chord)
+                        music_keys.append(key)
 
-        # pattern is a time signature
-        elif 'Time Signature:' in pattern:
-            time_sig = pattern.split(': ')[1]
-            new_time_signature = meter.TimeSignature(time_sig)
-            current_part.append(new_time_signature)
+        return music_keys
 
-        # pattern is a key signature
-        elif 'Key Signature:' in pattern:
-            sharps = int(pattern.split(' ')[2])
-            new_key_signature = key.KeySignature(sharps)
-            current_part.append(new_key_signature)
+    def simplify_message(self, msg):
+        messages = []
 
-        # pattern is a clef change
-        elif 'Clef:' in pattern:
-            clef_name = pattern.split(': ')[1]
-            if clef_name.lower() == 'treble':
-                new_clef = clef.TrebleClef()
-            elif clef_name.lower() == 'bass':
-                new_clef = clef.BassClef()
-            else:
-                new_clef = clef.TrebleClef()  # Default to TrebleClef if unrecognized
-            current_part.append(new_clef)
+        if hasattr(msg, 'time') and msg.time != 0:
+            time = round(msg.time, self.time_reduction)
+            msg.time = 0
+            messages.append(f"wait_{time}")
 
-        # pattern is a tempo (metronome mark)
-        elif 'Tempo:' in pattern:
-            bpm = int(pattern.split(' ')[1])
-            new_tempo = tempo.MetronomeMark(number=bpm)
-            current_part.append(new_tempo)
+        if hasattr(msg, 'channel'):
+            channel = msg.channel
+            msg.channel = 0
+            messages.append(f"channel_{channel}")
 
-        # pattern is a note
+        if msg.type == 'note_on':
+            note = round(msg.note, self.note_reduction)
+            velocity = round(msg.velocity, self.velocity_reduction)
+            messages.append(f"note_on_{note}_{velocity}")
+
+        elif msg.type == 'note_off':
+            note = round(msg.note, self.note_reduction)
+            messages.append(f"note_off_{note}")
+
+        elif msg.type == 'control_change':
+            control = msg.control
+            value = round(msg.value, self.control_change_val_reduction)
+            messages.append(f"controlchange_{value}_{control}")
+
+        elif msg.type == 'pitchwheel':
+            pitch = round(msg.pitch, self.pitch_reduction)
+            messages.append(f"pitchwheel_{pitch}")
+        # Simplify timing (quantized to musical note durations)
+        # elif msg.type == 'time':
+        #     # Map time to broad categories like quarter notes, eighth notes, etc.
+        #     # Assuming 'time' here represents delta time in ticks; adjust as needed
+        #     time = msg.time
+        #     if time >= 480:
+        #         return 'wait_quarter'
+        #     elif time >= 240:
+        #         return 'wait_eighth'
+        #     elif time >= 120:
+        #         return 'wait_sixteenth'
+        #     else:
+        #         return 'wait_tick'
+
+        elif isinstance(msg, MetaMessage) and msg.type in removable_meta_types:
+            return None
         else:
-            new_note = note.Note(pattern)
-            new_note.offset = offset
-            new_note.storedInstrument = current_instrument
-            current_part.append(new_note)
+            messages.append(msg)
+        return messages
 
-        # Increase offset for the next note/rest/chord based on its duration
-        if new_note is not None:
-            offset += new_note.quarterLength  # Use the note's duration for offset increment
-        elif new_chord is not None:
-            offset += new_chord.quarterLength  # Use the chord's duration for offset increment
-        elif new_rest is not None:
-            offset += new_rest.quarterLength  # Adjust offset for rests as well
+    def create_midi_from_flat_messages(self, music_keys, output_file):
+        new_midi = MidiFile()
+        current_track = None
 
-    # Append the last part to output_notes if it has notes
-    if current_part.notes:
-        output_notes.append(current_part)
-        print(f'Appending OUTPUT PART {part_num}, Notes: {len(current_part.notes)}')
+        # Organize messages back into their respective tracks
+        current_wait = 0
+        current_channel = 0
 
-    midi_stream = stream.Score(output_notes)  # Create a Score to hold all parts
-    midi_stream.write('midi', fp=output_file)
-    print(f'MIDI file saved as {output_file}')
+        for msg_key in music_keys:
+            # if msg == 'New song':
+            #     break
+            if msg_key == 'New track' or current_track is None:
+                # Create a new track if it doesn't exist
+                current_track = MidiTrack()
+                new_midi.tracks.append(current_track)
+                continue
+
+            msg = self.dictionary[msg_key]
+            maybe_wait = self.desimplify_wait(msg)
+            if maybe_wait is not None:
+                current_wait += maybe_wait
+                continue
+
+            maybe_channel = self.desimplify_channel(msg)
+            if maybe_channel is not None:
+                current_channel = maybe_channel
+                continue
+
+            if isinstance(msg, str):
+                desimplified_msg = self.desimplify_message(msg)
+            else:
+                desimplified_msg = msg
+
+            desimplified_msg.time = current_wait
+            if hasattr(msg, 'channel'):
+                desimplified_msg.channel = current_channel
+
+            current_track.append(desimplified_msg)
+            current_wait = 0
+
+        # Save the new MIDI file
+        new_midi.save(output_file)
+
+    def desimplify_wait(self, token):
+        if not isinstance(token, str):
+            return None
+
+        parts = token.split('_')
+        action = parts[0]
+        value = parts[1]
+        if action == 'wait':
+            return int(value)
+
+        return None
+
+    def desimplify_channel(self, token):
+        if not isinstance(token, str):
+            return None
+
+        parts = token.split('_')
+        action = parts[0]
+        value = parts[1]
+        if action == 'channel':
+            return int(value)
+
+        return None
+
+    def desimplify_message(self, token):
+        parts = token.split('_')
+        action = parts[0]
+
+        if action == 'note':
+            action_type = parts[1]
+            note = int(parts[2])
+            if action_type == 'on':
+                velocity = int(parts[3])
+                return Message('note_on', note=note, velocity=velocity)
+
+            elif action_type == 'off':
+                return Message('note_off', note=note, velocity=0)
+
+        elif action == 'controlchange':
+            value = int(parts[1])
+            control = int(parts[2])
+            return Message('control_change', value=value, control=control)
+
+        elif action == 'pitchwheel':
+            pitch = int(parts[1])
+            return Message('pitchwheel', pitch=pitch)
+
+        # # Reconstruct timing (assuming a specific tick value for simplicity)
+        # elif action == 'wait':
+        #     action_type = parts[1]
+        #     wait_type = action_type
+        #     time = {'quarter': 480, 'eighth': 240, 'sixteenth': 120}.get(wait_type, 480)
+        #     return time  # Time value, which will be used in the track loop
+
+        print('UNEXPECTED desimplify message')
+        return token
+
+
+def round(value, rounding):
+    return int(value / rounding) * rounding

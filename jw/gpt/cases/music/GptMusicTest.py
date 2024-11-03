@@ -1,21 +1,22 @@
-from pathlib import Path
+import mido
+from mido import MidiFile, MidiTrack, format_as_string, parse_string
 
-from jw.gpt.EncoderDecoder import EncoderDecoder
-from jw.gpt.cases.music.MusicConverter import mid_to_notes, create_midi
+from jw.gpt.cases.music.MusicConverter import MusicConverter
 
-songs = []
-folder = Path('songs2')
-for file in folder.rglob('*.mid'):
-    songs.append(file)
+# Specify the input and output MIDI file paths
+input_file = 'songs2/test_piano.midi'
+output_file = 'output-1.mid'
 
-notes = mid_to_notes(songs)
+music_converter = MusicConverter(time_reduction=1,
+                                 velocity_reduction=20,
+                                 control_change_val_reduction=20,
+                                 pitch_reduction=500,
+                                 note_reduction=3
+                                 )
+# Extract messages from the input MIDI file into a flat list
+flat_messages = music_converter.extract_messages([input_file])
 
-pitch_names = sorted(set(item for item in notes))
-vocab_size = len(pitch_names)
-print('vocab size: ', vocab_size)
+# Create a new MIDI file from the flat list of messages
+music_converter.create_midi_from_flat_messages(flat_messages, output_file)
 
-encode_decoder = EncoderDecoder(pitch_names)
-encoded_text = encode_decoder.encode(notes)
-
-music = encode_decoder.decodeToList(encoded_text)
-create_midi(notes)
+print(f"New MIDI file created with a flat list of messages preserving tracks: {output_file}")

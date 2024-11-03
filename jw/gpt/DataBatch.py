@@ -2,9 +2,9 @@ import torch
 
 
 class DataBatch:
-    def __init__(self, encoded_text, block_size, batch_size, device):
+    def __init__(self, encoded_text, block_size, batch_size, device, split=0.9):
         data = torch.tensor(encoded_text, dtype=torch.long)
-        n = int(0.9 * len(data))  # first 90% will be train, rest val
+        n = int(split * len(data))
         self.train_data = data[:n]
         self.val_data = data[n:]
 

@@ -44,5 +44,4 @@ learning.start()
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(encode_decoder.decodeToStr(m.generate(context, max_new_tokens=500)[0].tolist()))
-# open('more.txt', 'w').write(decode(m.generate(context, max_new_tokens=10000)[0].tolist()))
+open('output_1_57.txt', 'w').write(encode_decoder.decodeToStr(m.generate(context, max_new_tokens=500)[0].tolist()))
