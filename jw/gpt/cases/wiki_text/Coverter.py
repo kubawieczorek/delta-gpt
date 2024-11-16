@@ -21,7 +21,7 @@ folder = Path('input')
 for file_path in folder.rglob('*.json'):
     files_paths.append(file_path)
 
-with open('input/input_conv_3.txt', 'w', encoding='utf-8') as text_file:
+with open('input/input_conv_4.txt', 'w', encoding='utf-8') as text_file:
     for file_path in files_paths:
         try:
             with open(file_path, 'r', encoding='utf-8') as json_file:

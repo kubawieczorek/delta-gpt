@@ -17,12 +17,12 @@ eval_iters = 50
 n_embd = 300
 n_head = 8
 n_trans_blocks = 6
-dropout = 0.1
+dropout = 0.05
 # ------------
 
 torch.manual_seed(1337)
 
-with open('input/input_conv_3.txt', 'r', encoding='utf-8') as f:
+with open('input/input_conv_4.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
 # Directory containing the text files
