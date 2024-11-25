@@ -5,6 +5,7 @@ from jw.gpt.DataBatch import DataBatch
 from jw.gpt.EncoderDecoder import EncoderDecoder
 from jw.gpt.GPTLanuguageModel import GPTLanguageModel
 from jw.gpt.Learning import Learning
+import tensorflow as tf
 
 # hyperparameters
 batch_size = 64  # how many independent sequences will we process in parallel?
